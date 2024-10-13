@@ -226,7 +226,7 @@ find_entry() {
 			;;
 		esac
 	done 3<<- EOP
-		$(find "$@" 2> /dev/null)
+		$(find -L "$@" 2> /dev/null)
 	EOP
 
 	error "Could not find entry '$ENTRY_ID'!"
