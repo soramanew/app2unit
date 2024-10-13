@@ -1294,7 +1294,7 @@ while [ "$#" -gt "0" ]; do
 	esac
 done
 
-if [ "$FUZZEL_COMPAT" = "true" ] && [ -n "$FUZZEL_DESKTOP_FILE_ID" ]; then
+if [ "$FUZZEL_COMPAT" = "true" ] && [ -n "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
 	debug "setting MAIN_ARG from FUZZEL_DESKTOP_FILE_ID: '$FUZZEL_DESKTOP_FILE_ID'"
 	MAIN_ARG=$FUZZEL_DESKTOP_FILE_ID
 else
