@@ -44,7 +44,7 @@ Transparently, via having environment variables in your sessions:
 
 To use UWSM's custom slices:
 
-    APP2UNIT_SLICES=a=app-graphical.slice b=background-graphical.slice s=session-graphical.slice
+    APP2UNIT_SLICES='a=app-graphical.slice b=background-graphical.slice s=session-graphical.slice'
 
 To change default unit type:
 
