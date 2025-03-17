@@ -21,6 +21,7 @@ giving additional ~0.03s.
       [-d description] \
       [-S out|err|both] \
       [-T] \
+      [-O | --open] \
       [--fuzzel-compat] \
       [--test]
       [--] \
@@ -49,3 +50,11 @@ To use UWSM's custom slices:
 To change default unit type:
 
     APP2UNIT_TYPE=service
+
+## Opener mode
+
+If invoked with `-O | --open` option, or if executable's name ends with
+`-open` (i.e. via `app2unit-open` symlink), the script becomes an analog of
+`xdg-open`: files or URLs given in arguments are opened with a desktop entry
+automatically selected via `xdg-mime`. Intended to be unit-aware replacement
+for `xdg-open`.

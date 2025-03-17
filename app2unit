@@ -20,27 +20,48 @@ shcat() {
 }
 
 usage() {
-	shcat <<- EOF
-		Usage:
-		  $SELF_NAME \\
-		    [-h | --help]
-		    [-s a|b|s|custom.slice] \\
-		    [-t scope|service] \\
-		    [-a app_name | -u unit_id] \\
-		    [-d description] \\
-		    [-S out|err|both] \\
-		    [-T] \\
-		    [--fuzzel-compat] \\
-		    [--test]
-		    [--] \\
-		    {entry-id.desktop | entry-id.desktop:action-id | command} \\
-		    [args ...]
-	EOF
+	case "$SELF_NAME" in
+	*-open)
+		shcat <<- EOF
+			Usage:
+			  $SELF_NAME \\
+			    [-h | --help]
+			    [-s a|b|s|custom.slice] \\
+			    [-t scope|service] \\
+			    [-a app_name | -u unit_id] \\
+			    [-d description] \\
+			    [-S out|err|both] \\
+			    [-T] \\
+			    [--test]
+			    [--] \\
+			    [file/URL ...]
+		EOF
+		;;
+	*)
+		shcat <<- EOF
+			Usage:
+			  $SELF_NAME \\
+			    [-h | --help]
+			    [-s a|b|s|custom.slice] \\
+			    [-t scope|service] \\
+			    [-a app_name | -u unit_id] \\
+			    [-d description] \\
+			    [-S out|err|both] \\
+			    [-T] \\
+			    [-O | --open ] \\
+			    [--fuzzel-compat] \\
+			    [--test]
+			    [--] \\
+			    {entry-id.desktop | entry-id.desktop:action-id | command} \\
+			    [args ...]
+		EOF
+		;;
+	esac
 }
 
 help() {
 	shcat <<- EOF
-		$SELF_NAME - Application launcher for systemd environments.
+		$SELF_NAME - Application launcher and file opener for systemd environments.
 
 		Launches applications from Desktop Entries, or arbitrary
 		command lines, as systemd user scopes or services.
@@ -79,12 +100,26 @@ help() {
 		  -S {out,err,both}
 		    Silence stdout stderr or both.
 
-		  --fuzzel-compat
-		    For using in fuzzel like this:
-		      fuzzel --launch-prefix='app2unit --fuzzel-compat --'
-		    Will need updates after this is solved:
-		      https://codeberg.org/dnkl/fuzzel/issues/292
+	EOF
+	case "$SELF_NAME" in
+	*-open) true ;;
+	*)
+		shcat <<- EOF
+			  -O | --open (also selected by default if \$0 ends with '-open')
+			    Opener mode: argument(s) are treated as file(s) or URL(s) to open.
+			    Desktop entry for them is found via xdg-mime. Only single association
+			    is supported.
 
+			  --fuzzel-compat
+			    For using in fuzzel like this:
+			      fuzzel --launch-prefix='app2unit --fuzzel-compat --'
+			    Will need updates after this is solved:
+			      https://codeberg.org/dnkl/fuzzel/issues/292
+		EOF
+		;;
+	esac
+
+	shcat <<- EOF
 		  --test
 		    Do not run anything, print command.
 
@@ -843,6 +878,7 @@ urlencode() {
 
 gen_unit_id() {
 	# generate Unit ID based on Entry ID or exec name if UNIT_ID is not already set
+	# sets UNIT_ID
 
 	if [ -z "$UNIT_ID" ]; then
 		if [ -z "$UNIT_APP_SUBSTRING" ] && [ -n "${ENTRY_ID}" ]; then
@@ -870,6 +906,7 @@ gen_unit_id() {
 			;;
 		esac
 
+		RANDOM_STRING=$(random_string)
 		case "$UNIT_TYPE" in
 		service)
 			UNIT_ID="app-${XDG_SESSION_DESKTOP}-${UNIT_APP_SUBSTRING}@${RANDOM_STRING}.service"
@@ -906,7 +943,20 @@ gen_unit_id() {
 		return 1
 		;;
 	esac
-	echo "$UNIT_ID"
+}
+
+randomize_unit_id() {
+	# updates random string in existing UNIT_ID
+
+	if [ -z "$RANDOM_STRING" ]; then
+		debug "refusing to randomize unit ID"
+		return 0
+	fi
+	NEW_RANDOM_STRING=$(random_string)
+	debug "new random string: $NEW_RANDOM_STRING"
+	UNIT_ID=${UNIT_ID%"${RANDOM_STRING}.${UNIT_TYPE}"}${NEW_RANDOM_STRING}.${UNIT_TYPE}
+	#"
+	RANDOM_STRING=${NEW_RANDOM_STRING}
 }
 
 systemd_run() {
@@ -1132,11 +1182,18 @@ fi
 
 TERMINAL=false
 FUZZEL_COMPAT=false
-RANDOM_STRING=$(random_string)
+
+# will be set where needed
+RANDOM_STRING=
 
 LCODE=${LANGUAGE:-"$LANG"}
 LCODE=${LCODE%_*}
 LCODE=${LCODE:-NOLCODE}
+
+case "$SELF_NAME" in
+*-open) OPENER_MODE=true ;;
+*) OPENER_MODE=false ;;
+esac
 
 # expand short args
 first=true
@@ -1278,6 +1335,11 @@ while [ "$#" -gt "0" ]; do
 		debug "arg '$1'"
 		shift
 		;;
+	-O | --open)
+		OPENER_MODE=true
+		debug "arg '$1'"
+		shift
+		;;
 	--fuzzel-compat)
 		FUZZEL_COMPAT=true
 		debug "arg '$1'"
@@ -1289,8 +1351,8 @@ while [ "$#" -gt "0" ]; do
 		shift
 		;;
 	--)
-		shift
 		debug "arg '$1', breaking"
+		shift
 		break
 		;;
 	-*)
@@ -1304,7 +1366,57 @@ while [ "$#" -gt "0" ]; do
 	esac
 done
 
-if [ "$FUZZEL_COMPAT" = "true" ] && [ -n "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
+if [ -z "${1:-}" ]; then
+	error "Arguments expected" "$(usage)"
+	exit 1
+fi
+
+if [ "$OPENER_MODE" = "true" ]; then
+	if [ "$#" = "0" ]; then
+		error "File(s) or URL(s) expected for open mode."
+		exit 1
+	fi
+	MAIN_ARG=
+	# determine if file or URL, get associations for MAIN_ARG
+	for arg in "$@"; do
+		case "$arg" in
+		[a-zA-Z]*:*)
+			IFS=':' read -r scheme _rest <<- EOF
+				$arg
+			EOF
+			debug "potential scheme '$scheme'"
+			case "$scheme" in
+			*[!a-zA-Z0-9+.-]*)
+				debug "not a valid scheme '$scheme', assuming file"
+				mime=$(xdg-mime query filetype "$arg")
+				;;
+			*) mime=x-scheme-handler/$scheme ;;
+			esac
+			;;
+		*) mime=$(xdg-mime query filetype "$arg") ;;
+		esac
+		if [ -z "$mime" ]; then
+			error "Could not query mime type for '$arg'"
+			exit 1
+		fi
+		debug "got mime '$mime'"
+		assoc=$(xdg-mime query default "$mime")
+		if [ -z "$assoc" ]; then
+			error "Could not query association for for mime '$mime'"
+			exit 1
+		fi
+		if [ -z "$MAIN_ARG" ]; then
+			debug "setting MAIN_ARG from association for '$arg': '$assoc'"
+			MAIN_ARG=$assoc
+		elif [ "$MAIN_ARG" = "$assoc" ]; then
+			debug "arg '$arg' has the same association"
+			true
+		else
+			error "Can not open multiple files/URLs with different associations"
+			exit 1
+		fi
+	done
+elif [ "$FUZZEL_COMPAT" = "true" ] && [ -n "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
 	debug "setting MAIN_ARG from FUZZEL_DESKTOP_FILE_ID: '$FUZZEL_DESKTOP_FILE_ID'"
 	MAIN_ARG=$FUZZEL_DESKTOP_FILE_ID
 else
@@ -1343,8 +1455,8 @@ if [ -n "$ENTRY_PATH" ]; then
 	read_entry_path "$ENTRY_PATH" "$ENTRY_ACTION"
 fi
 
-# generate Unit ID
-UNIT_ID=$(gen_unit_id)
+# generate Unit ID as UNIT_ID
+gen_unit_id
 
 # compose arguments
 if [ -n "$ENTRY_ID" ]; then
@@ -1367,6 +1479,7 @@ if [ -n "$ENTRY_ID" ]; then
 	case "$EXEC_RSEP_USEP" in
 	*"$RSEP"*)
 		IFS=$RSEP
+		first=true
 		for cmd in $EXEC_RSEP_USEP; do
 			IFS=$USEP
 			# shellcheck disable=SC2086
@@ -1380,7 +1493,11 @@ if [ -n "$ENTRY_ID" ]; then
 				;;
 			esac
 			debug "iteration${N}$(printf 'D:     >%s<\n' "$@")"
+			if [ "$first" = "false" ]; then
+				randomize_unit_id
+			fi
 			systemd_run "$@" &
+			first=false
 		done
 		wait
 		exit
