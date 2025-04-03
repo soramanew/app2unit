@@ -31,6 +31,7 @@ usage() {
 			    [-a app_name | -u unit_id] \\
 			    [-d description] \\
 			    [-S out|err|both] \\
+			    [-c] \\
 			    [-T] \\
 			    [--test]
 			    [--] \\
@@ -47,6 +48,7 @@ usage() {
 			    [-a app_name | -u unit_id] \\
 			    [-d description] \\
 			    [-S out|err|both] \\
+			    [-c] \\
 			    [-T] \\
 			    [-O | --open ] \\
 			    [--fuzzel-compat] \\
@@ -99,6 +101,10 @@ help() {
 
 		  -S {out,err,both}
 		    Silence stdout stderr or both.
+
+		  -c
+		    Do not add graphical-session.target dependency and ordering.
+		    Also can be preset with APP2UNIT_PART_OF_GST=false.
 
 	EOF
 	case "$SELF_NAME" in
@@ -971,6 +977,7 @@ systemd_run() {
 		UNIT_DESCRIPTION=${EXEC_NAME}
 	fi
 
+
 	set -- \
 		--slice="$UNIT_SLICE_ID" \
 		--unit="$UNIT_ID" \
@@ -979,6 +986,15 @@ systemd_run() {
 		--collect \
 		--same-dir \
 		-- "$@"
+
+	if [ "$PART_OF_GST" = "true" ]; then
+		# prepend graphical session dependency/ordering args
+		set -- \
+			--property=After=graphical-session.target \
+			--property=PartOf=graphical-session.target \
+			"$@"
+	fi
+
 	# prepend unit type-dependent args
 	case "$UNIT_TYPE" in
 	scope) set -- --scope "$@" ;;
@@ -1180,6 +1196,17 @@ if [ -z "$UNIT_SLICE_ID" ]; then
 	debug "falling back to default slice 'app.slice'"
 fi
 
+PART_OF_GST=true
+if [ -z "${APP2UNIT_PART_OF_GST:-}" ]; then
+	PART_OF_GST=true
+else
+	if check_bool "$APP2UNIT_PART_OF_GST"; then
+		PART_OF_GST=true
+	else
+		PART_OF_GST=false
+	fi
+fi
+
 TERMINAL=false
 FUZZEL_COMPAT=false
 
@@ -1318,6 +1345,11 @@ while [ "$#" -gt "0" ]; do
 		fi
 		debug "arg '$1' '$2'"
 		shift 2
+		;;
+	-c)
+		debug "arg '$1'"
+		PART_OF_GST=false
+		shift
 		;;
 	-S)
 		case "$2" in

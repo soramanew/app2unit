@@ -21,6 +21,7 @@ giving additional ~0.03s.
       [-d description] \
       [-S out|err|both] \
       [-T] \
+      [-c] \
       [-O | --open] \
       [--fuzzel-compat] \
       [--test]
