@@ -859,7 +859,7 @@ urlencode() {
 	# assuming absolute path
 	/*) true ;;
 	# assuming relative path
-	*) string=./$string ;;
+	*) string=$(pwd)/$string ;;
 	esac
 
 	printf '%s' 'file://'
