@@ -738,6 +738,18 @@ parse_entry_key() {
 		de_expand_str "$value"
 		ENTRY_ICON=$EXPANDED_STR
 		;;
+	Path)
+		debug "captured '$key' '$value'"
+		de_expand_str "$value"
+		ENTRY_WORKDIR=$EXPANDED_STR
+		if [ ! -e "$ENTRY_WORKDIR" ]; then
+			error "${ENTRY_ID}: Requested 'Path' '${ENTRY_WORKDIR}' does not exist!"
+			return 1
+		elif [ ! -d "$ENTRY_WORKDIR" ]; then
+			error "${ENTRY_ID}: Requested 'Path' '${ENTRY_WORKDIR}' is not a directory!"
+			return 1
+		fi
+		;;
 	esac
 	# By default unrecognised keys, empty lines and comments get ignored
 }
@@ -984,7 +996,6 @@ systemd_run() {
 		--description="$UNIT_DESCRIPTION" \
 		--quiet \
 		--collect \
-		--same-dir \
 		-- "$@"
 
 	if [ "$PART_OF_GST" = "true" ]; then
@@ -993,6 +1004,13 @@ systemd_run() {
 			--property=After=graphical-session.target \
 			--property=PartOf=graphical-session.target \
 			"$@"
+	fi
+
+	if [ -n "$ENTRY_WORKDIR" ]; then
+		# prepend requested Path or samedir
+		set -- "--working-directory=${ENTRY_WORKDIR}" "$@"
+	else
+		set -- --same-dir "$@"
 	fi
 
 	# prepend unit type-dependent args
@@ -1140,6 +1158,7 @@ ENTRY_ID=''
 ENTRY_COMMENT=''
 ENTRY_NAME=''
 ENTRY_ICON=''
+ENTRY_WORKDIR=''
 UNIT_DESCRIPTION=''
 UNIT_ID=''
 UNIT_APP_SUBSTRING=''
