@@ -495,7 +495,7 @@ de_tokenize_exec() {
 		;;
 	esac
 	# shellcheck disable=SC2086
-	debug "tokenizer ended:" "$(
+	debug "tokenizer ended:${N}$(
 		IFS=$USEP
 		printf 'D:     >%s<\n' $EXEC_USEP
 	)"
@@ -684,7 +684,7 @@ parse_entry_key() {
 	Exec)
 		case "$read_exec" in
 		false)
-			debug "ignored Exec from wrong section"
+			debug "ignored Exec from wrong section or already filled"
 			return 0
 			;;
 		esac
@@ -783,6 +783,12 @@ parse_entry_key() {
 		;;
 	Terminal)
 		debug "captured '$key' '$value'"
+		case "$FUZZEL_COMPAT" in
+		true)
+			debug "ignoring Terminal in fuzzel compat mode"
+			return 0
+			;;
+		esac
 		case "$value" in
 		true)
 			# if terminal was not requested explicitly, check terminal handler
@@ -814,7 +820,7 @@ read_entry_path() {
 		case $line in
 		# `There should be nothing preceding [the Desktop Entry group] in the desktop entry file but [comments]`
 		# if entry_action is not requested, allow reading Exec right away from the main group
-		'[Desktop Entry]'*) [ -z "$entry_action" ] && read_exec=true ;;
+		'[Desktop Entry]'*) [ -z "$entry_action" ] && [ -z "$EXEC_RSEP_USEP" ] && read_exec=true ;;
 		# A `Key=Value` pair
 		[a-zA-Z0-9-]*=*)
 			# Split
@@ -833,7 +839,7 @@ read_entry_path() {
 		"[Desktop Action ${entry_action}]"*)
 			case "$action_listed" in
 			true)
-				read_exec=true
+				[ -z "$EXEC_RSEP_USEP" ] && read_exec=true
 				in_action=true
 				;;
 			*)
@@ -1280,9 +1286,13 @@ TERMINAL=false
 FUZZEL_COMPAT=false
 OPENER_MODE=false
 
+capture_terminal_args=false
 case "$SELF_NAME" in
 *-open) OPENER_MODE=true ;;
-*-term) TERMINAL=true ;;
+*-term)
+	TERMINAL=true
+	capture_terminal_args=true
+	;;
 esac
 
 # will be set where needed
@@ -1328,8 +1338,6 @@ done
 
 # parse args
 TERMINAL_ARGS_USEP=
-TERMINAL_CMDLINE_USEP=
-capture_terminal_args=false
 while [ "$#" -gt "0" ]; do
 	case "$1" in
 	-h | --help)
@@ -1448,13 +1456,8 @@ while [ "$#" -gt "0" ]; do
 		shift
 		;;
 	--fuzzel-compat)
+		FUZZEL_COMPAT=true
 		debug "arg '$1'"
-		if [ -n "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
-			FUZZEL_COMPAT=true
-			debug "fuzzel compat"
-		else
-			debug "fuzzel compat ignored, no FUZZEL_DESKTOP_FILE_ID"
-		fi
 		shift
 		;;
 	--test)
@@ -1490,6 +1493,17 @@ done
 if [ "$#" -eq "0" ] && [ "$TERMINAL" = "false" ]; then
 	error "Arguments expected" "$(usage)"
 	exit 1
+fi
+
+if [ "$FUZZEL_COMPAT" = "true" ]; then
+	if [ -z "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
+		debug "no FUZZEL_DESKTOP_FILE_ID, cancelling FUZZEL_COMPAT"
+		FUZZEL_COMPAT=false
+	fi
+	if [ "$OPENER_MODE" = "true" ]; then
+		debug "opener mode, cancelling FUZZEL_COMPAT"
+		FUZZEL_COMPAT=false
+	fi
 fi
 
 if [ "$OPENER_MODE" = "true" ]; then
@@ -1537,9 +1551,19 @@ if [ "$OPENER_MODE" = "true" ]; then
 			exit 1
 		fi
 	done
-elif [ "$FUZZEL_COMPAT" = "true" ] && [ -n "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
-	debug "setting MAIN_ARG from FUZZEL_DESKTOP_FILE_ID: '$FUZZEL_DESKTOP_FILE_ID'"
+elif [ "$FUZZEL_COMPAT" = "true" ]; then
+	debug "setting MAIN_ARG from FUZZEL_DESKTOP_FILE_ID: '$FUZZEL_DESKTOP_FILE_ID'" "passing arguments to exec array"
 	MAIN_ARG=$FUZZEL_DESKTOP_FILE_ID
+	# Fuzzel compat mode, awaiting for https://codeberg.org/dnkl/fuzzel/issues/292
+	# ignore command from entry, take only metadata, use arg array as is.
+	if ! type "$1" > /dev/null 2>&1; then
+		error "Executable not found: '$1'"
+		exit 1
+	fi
+	EXEC_RSEP_USEP=$(
+		printf "%s${USEP}" "$@"
+	)
+	EXEC_RSEP_USEP=${EXEC_RSEP_USEP%"$USEP"}
 elif [ "$#" -eq "0" ] && [ "$TERMINAL" = "true" ]; then
 	# special case for launching just terminal
 
@@ -1555,12 +1579,12 @@ elif [ "$#" -eq "0" ] && [ "$TERMINAL" = "true" ]; then
 	); then
 		# entry path and action before newline
 		MAIN_ARG=${path_and_cmd%%"$N"*}
-		# cmd after newline
-		TERMINAL_CMDLINE_USEP=${path_and_cmd#*"$N"}
+		# cmd after newline, fill exec array right away
+		EXEC_RSEP_USEP=${path_and_cmd#*"$N"}
 		# shellcheck disable=SC2086
-		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated TERMINAL_CMDLINE_USEP with:${N}" "$(
+		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated EXEC_RSEP_USEP with:${N}" "$(
 			IFS=$USEP
-			printf '  > %s\n' $TERMINAL_CMDLINE_USEP
+			printf '  > %s\n' $EXEC_RSEP_USEP
 		)"
 	else
 		# issue a warning
@@ -1613,26 +1637,12 @@ gen_unit_id
 
 # compose arguments
 if [ -n "$ENTRY_ID" ]; then
-	# special case for launching just terminal
-	# swap arg array for what's came from terminal handler
-	if [ -n "$TERMINAL_CMDLINE_USEP" ]; then
-		EXEC_RSEP_USEP=$TERMINAL_CMDLINE_USEP
-	fi
+
+	# do not bother with fields in fuzzel compat, since there are no open args
 	case "$FUZZEL_COMPAT" in
-	true)
-		# Fuzzel compat mode, awaiting for https://codeberg.org/dnkl/fuzzel/issues/292
-		# ignore command from entry, take only metadata, use arg array as is.
-		if ! type "$1" > /dev/null 2>&1; then
-			error "Executable not found: '$1'"
-			exit 1
-		fi
-		EXEC_RSEP_USEP=$(
-			printf "%s${USEP}" "$@"
-		)
-		EXEC_RSEP_USEP=${EXEC_RSEP_USEP%"$USEP"}
-		;;
 	false) de_inject_fields "$@" ;;
 	esac
+
 	# deal with potential multiple iterations
 	case "$EXEC_RSEP_USEP" in
 	*"$RSEP"*)
