@@ -1345,10 +1345,10 @@ while [ "$#" -gt "0" ]; do
 		exit 0
 		;;
 	-s)
-		debug "arg '$1' '$2'"
-		case "$2" in
+		debug "arg '$1' '${2:-}'"
+		case "${2:-}" in
 		.slice | '')
-			error "Empty slice id '$2'" "$(usage)"
+			error "Empty slice id '${2:-}'" "$(usage)"
 			exit 1
 			;;
 		*[!a-zA-Z0-9_.-]*)
@@ -1381,18 +1381,19 @@ while [ "$#" -gt "0" ]; do
 		exit 1
 		;;
 	-t)
-		case "$2" in
+		debug "arg '$1' '${2:-}'"
+		case "${2:-}" in
 		scope | service) UNIT_TYPE=$2 ;;
 		*)
-			error "Expected unit type scope|service for -t, got '$2'!" "$(usage)"
+			error "Expected unit type scope|service for -t, got '${2:-}'!" "$(usage)"
 			exit 1
 			;;
 		esac
-		debug "arg '$1' '$2'"
 		shift 2
 		;;
 	-a)
-		if [ -z "$2" ]; then
+		debug "arg '$1' '${2:-}'"
+		if [ -z "${2:-}" ]; then
 			error "Expected app name for -a!" "$(usage)"
 			exit 1
 		elif [ -n "$UNIT_ID" ]; then
@@ -1401,11 +1402,11 @@ while [ "$#" -gt "0" ]; do
 		else
 			UNIT_APP_SUBSTRING=$2
 		fi
-		debug "arg '$1' '$2'"
 		shift 2
 		;;
 	-u)
-		if [ -z "$2" ]; then
+		debug "arg '$1' '${2:-}'"
+		if [ -z "${2:-}" ]; then
 			error "Expected Unit ID for -u!" "$(usage)"
 			exit 1
 		elif [ -n "$UNIT_APP_SUBSTRING" ]; then
@@ -1414,17 +1415,16 @@ while [ "$#" -gt "0" ]; do
 		else
 			UNIT_ID=$2
 		fi
-		debug "arg '$1' '$2'"
 		shift 2
 		;;
 	-d)
-		if [ -n "$2" ]; then
-			UNIT_DESCRIPTION="$2"
-		else
+		debug "arg '$1' '${2:-}'"
+		if [ -z "${2:-}" ]; then
 			error "Expected unit description for -d!" "$(usage)"
 			exit 1
+		else
+			UNIT_DESCRIPTION="$2"
 		fi
-		debug "arg '$1' '$2'"
 		shift 2
 		;;
 	-c)
@@ -1433,14 +1433,14 @@ while [ "$#" -gt "0" ]; do
 		shift
 		;;
 	-S)
-		case "$2" in
+		debug "arg '$1' '${2:-}'"
+		case "${2:-}" in
 		out | err | both) SILENT=$2 ;;
 		*)
-			error "Expected silent mode out|err|both for -S, got '$2'!" "$(usage)"
+			error "Expected silent mode out|err|both for -S, got '${2:-}'!" "$(usage)"
 			exit 1
 			;;
 		esac
-		debug "arg '$1' '$2'"
 		shift 2
 		;;
 	-T)
@@ -1576,7 +1576,7 @@ elif [ "$#" -eq "0" ] && [ "$TERMINAL" = "true" ]; then
 		# prevent old xdg-terminal-exec from running anything
 		unset DISPLAY WAYLAND_DISPLAY
 		"$TERMINAL_HANDLER" --print-path --print-cmd='\037' "$@"
-	); then
+	) && case "$path_and_cmd" in '/'*".desktop$N"* | '/'*'.desktop:'*"$N"*) true ;; *) false ;; esac then
 		# entry path and action before newline
 		MAIN_ARG=${path_and_cmd%%"$N"*}
 		# cmd after newline, fill exec array right away
