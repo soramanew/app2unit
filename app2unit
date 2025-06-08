@@ -38,6 +38,25 @@ usage() {
 			    [file/URL ...]
 		EOF
 		;;
+	*-term)
+		shcat <<- EOF
+			Usage:
+			  $SELF_NAME \\
+			    [-h | --help]
+			    [-s a|b|s|custom.slice] \\
+			    [-t scope|service] \\
+			    [-a app_name | -u unit_id] \\
+			    [-d description] \\
+			    [-S out|err|both] \\
+			    [-c] \\
+			    [-O | --open ] \\
+			    [--fuzzel-compat] \\
+			    [--test]
+			    [--] \\
+			    [entry-id.desktop | entry-id.desktop:action-id | command] \\
+			    [args ...]
+		EOF
+		;;
 	*)
 		shcat <<- EOF
 			Usage:
@@ -63,9 +82,10 @@ usage() {
 
 help() {
 	shcat <<- EOF
-		$SELF_NAME - Application launcher and file opener for systemd environments.
+		$SELF_NAME - Application launcher, file opener, default terminal launcher
+		for systemd environments.
 
-		Launches applications from Desktop Entries, or arbitrary
+		Launches applications from Desktop Entries or arbitrary
 		command lines, as systemd user scopes or services.
 
 		$(usage)
@@ -96,9 +116,20 @@ help() {
 		    Set/override unit description. Defaults is take from Entry's "Name=" and
 		    "Comment=" keys.
 
-		  -T
-		    Force launch in terminal (xdg-terminal-exec is used).
+	EOF
+	case "$SELF_NAME" in
+	*-term) true ;;
+	*)
+		shcat <<- EOF
+			  -T (also selected by default if \$0 ends with '-term')
+			    Force launch in terminal (${TERMINAL_HANDLER} is used). Any unknown option
+			    starting with '-' after this will be passed to ${TERMINAL_HANDLER}.
+			    Command may be omitted to just launch default terminal.
 
+		EOF
+		;;
+	esac
+	shcat <<- EOF
 		  -S {out,err,both}
 		    Silence stdout stderr or both.
 
@@ -750,6 +781,18 @@ parse_entry_key() {
 			return 1
 		fi
 		;;
+	Terminal)
+		debug "captured '$key' '$value'"
+		case "$value" in
+		true)
+			# if terminal was not requested explicitly, check terminal handler
+			case "$TERMINAL" in
+			false) check_terminal_handler ;;
+			esac
+			TERMINAL=true
+			;;
+		esac
+		;;
 	esac
 	# By default unrecognised keys, empty lines and comments get ignored
 }
@@ -989,7 +1032,6 @@ systemd_run() {
 		UNIT_DESCRIPTION=${EXEC_NAME}
 	fi
 
-
 	set -- \
 		--slice="$UNIT_SLICE_ID" \
 		--unit="$UNIT_ID" \
@@ -1146,6 +1188,14 @@ parse_main_arg() {
 	fi
 }
 
+check_terminal_handler() {
+	# checks terminal handler availability
+	if ! command -v "$TERMINAL_HANDLER" > /dev/null; then
+		error "Terminal launch requested but '$TERMINAL_HANDLER' is unavailable!"
+		exit 1
+	fi
+}
+
 ########################
 
 debug "initial args:${N}$(printf 'D:     >%s<\n' "$@")"
@@ -1228,6 +1278,12 @@ fi
 
 TERMINAL=false
 FUZZEL_COMPAT=false
+OPENER_MODE=false
+
+case "$SELF_NAME" in
+*-open) OPENER_MODE=true ;;
+*-term) TERMINAL=true ;;
+esac
 
 # will be set where needed
 RANDOM_STRING=
@@ -1235,11 +1291,6 @@ RANDOM_STRING=
 LCODE=${LANGUAGE:-"$LANG"}
 LCODE=${LCODE%_*}
 LCODE=${LCODE:-NOLCODE}
-
-case "$SELF_NAME" in
-*-open) OPENER_MODE=true ;;
-*) OPENER_MODE=false ;;
-esac
 
 # expand short args
 first=true
@@ -1276,6 +1327,9 @@ for arg in "$@"; do
 done
 
 # parse args
+TERMINAL_ARGS_USEP=
+TERMINAL_CMDLINE_USEP=
+capture_terminal_args=false
 while [ "$#" -gt "0" ]; do
 	case "$1" in
 	-h | --help)
@@ -1383,7 +1437,9 @@ while [ "$#" -gt "0" ]; do
 		;;
 	-T)
 		TERMINAL=true
+		capture_terminal_args=true
 		debug "arg '$1'"
+		check_terminal_handler
 		shift
 		;;
 	-O | --open)
@@ -1392,8 +1448,13 @@ while [ "$#" -gt "0" ]; do
 		shift
 		;;
 	--fuzzel-compat)
-		FUZZEL_COMPAT=true
 		debug "arg '$1'"
+		if [ -n "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
+			FUZZEL_COMPAT=true
+			debug "fuzzel compat"
+		else
+			debug "fuzzel compat ignored, no FUZZEL_DESKTOP_FILE_ID"
+		fi
 		shift
 		;;
 	--test)
@@ -1407,8 +1468,17 @@ while [ "$#" -gt "0" ]; do
 		break
 		;;
 	-*)
-		error "Unknown option '$1'!" "$(usage)"
-		exit 1
+		case "$capture_terminal_args" in
+		false)
+			error "Unknown option '$1'!" "$(usage)"
+			exit 1
+			;;
+		true)
+			debug "storing unknown opt '$1' for terminal"
+			TERMINAL_ARGS_USEP=${TERMINAL_ARGS_USEP}${TERMINAL_ARGS_USEP:+$USEP}${1}
+			shift
+			;;
+		esac
 		;;
 	*)
 		debug "arg '$1', breaking"
@@ -1417,7 +1487,7 @@ while [ "$#" -gt "0" ]; do
 	esac
 done
 
-if [ -z "${1:-}" ]; then
+if [ "$#" -eq "0" ] && [ "$TERMINAL" = "false" ]; then
 	error "Arguments expected" "$(usage)"
 	exit 1
 fi
@@ -1470,6 +1540,38 @@ if [ "$OPENER_MODE" = "true" ]; then
 elif [ "$FUZZEL_COMPAT" = "true" ] && [ -n "${FUZZEL_DESKTOP_FILE_ID:-}" ]; then
 	debug "setting MAIN_ARG from FUZZEL_DESKTOP_FILE_ID: '$FUZZEL_DESKTOP_FILE_ID'"
 	MAIN_ARG=$FUZZEL_DESKTOP_FILE_ID
+elif [ "$#" -eq "0" ] && [ "$TERMINAL" = "true" ]; then
+	# special case for launching just terminal
+
+	# get entry path and cmdline from terminal handler
+	if path_and_cmd=$(
+		IFS=$USEP
+		# shellcheck disable=SC2086
+		set -- $TERMINAL_ARGS_USEP
+		IFS=$OIFS
+		# prevent old xdg-terminal-exec from running anything
+		unset DISPLAY WAYLAND_DISPLAY
+		"$TERMINAL_HANDLER" --print-path --print-cmd='\037' "$@"
+	); then
+		# entry path and action before newline
+		MAIN_ARG=${path_and_cmd%%"$N"*}
+		# cmd after newline
+		TERMINAL_CMDLINE_USEP=${path_and_cmd#*"$N"}
+		# shellcheck disable=SC2086
+		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated TERMINAL_CMDLINE_USEP with:${N}" "$(
+			IFS=$USEP
+			printf '  > %s\n' $TERMINAL_CMDLINE_USEP
+		)"
+	else
+		# issue a warning
+		{
+			# shellcheck disable=SC2028
+			echo "Could not determine default terminal entry via '$TERMINAL_HANDLER --print-path --print-cmd=\037'!"
+			echo "Falling back to injecting '$TERMINAL_HANDLER' as the main argument."
+		} >&2
+		MAIN_ARG="$TERMINAL_HANDLER"
+	fi
+	TERMINAL=false
 else
 	MAIN_ARG=$1
 	shift
@@ -1511,6 +1613,11 @@ gen_unit_id
 
 # compose arguments
 if [ -n "$ENTRY_ID" ]; then
+	# special case for launching just terminal
+	# swap arg array for what's came from terminal handler
+	if [ -n "$TERMINAL_CMDLINE_USEP" ]; then
+		EXEC_RSEP_USEP=$TERMINAL_CMDLINE_USEP
+	fi
 	case "$FUZZEL_COMPAT" in
 	true)
 		# Fuzzel compat mode, awaiting for https://codeberg.org/dnkl/fuzzel/issues/292
@@ -1540,7 +1647,10 @@ if [ -n "$ENTRY_ID" ]; then
 			true)
 				# inject terminal handler
 				debug "injected $TERMINAL_HANDLER"
-				set -- "$TERMINAL_HANDLER" "$@"
+				IFS=$USEP
+				# shellcheck disable=SC2086
+				set -- "$TERMINAL_HANDLER" $TERMINAL_ARGS_USEP "$@"
+				IFS=$OIFS
 				;;
 			esac
 			debug "iteration${N}$(printf 'D:     >%s<\n' "$@")"
@@ -1562,7 +1672,10 @@ if [ -n "$ENTRY_ID" ]; then
 		true)
 			# inject terminal handler
 			debug "injected $TERMINAL_HANDLER"
-			set -- "$TERMINAL_HANDLER" "$@"
+			IFS=$USEP
+			# shellcheck disable=SC2086
+			set -- "$TERMINAL_HANDLER" $TERMINAL_ARGS_USEP "$@"
+			IFS=$OIFS
 			;;
 		esac
 		debug "single${N}$(printf 'D:     >%s<\n' "$@")"
@@ -1576,7 +1689,10 @@ else
 	true)
 		# inject terminal handler
 		debug "injected $TERMINAL_HANDLER"
-		set -- "$TERMINAL_HANDLER" "$@"
+		IFS=$USEP
+		# shellcheck disable=SC2086
+		set -- "$TERMINAL_HANDLER" $TERMINAL_ARGS_USEP "$@"
+		IFS=$OIFS
 		;;
 	esac
 	debug "cmd${N}$(printf 'D:     >%s<\n' "$@")"
