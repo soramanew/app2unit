@@ -114,7 +114,7 @@ help() {
 
 		  -d description
 		    Set/override unit description. Defaults is take from Entry's "Name=" and
-		    "Comment=" keys.
+		    "GenericName=" keys.
 
 	EOF
 	case "$SELF_NAME" in
@@ -624,7 +624,8 @@ parse_entry_key() {
 	value=$2
 	action=$3
 	read_exec=$4
-	in_action=$5
+	in_main=$5
+	in_action=$6
 
 	case $key in
 	Actions)
@@ -684,7 +685,7 @@ parse_entry_key() {
 	Exec)
 		case "$read_exec" in
 		false)
-			debug "ignored Exec from wrong section or already filled"
+			debug "ignored Exec from wrong section"
 			return 0
 			;;
 		esac
@@ -692,6 +693,11 @@ parse_entry_key() {
 		true) action_exec=true ;;
 		esac
 		debug "read Exec '$value'"
+		# skip acutal reading if array is already filled
+		if [ -n "$EXEC_RSEP_USEP" ]; then
+			debug "skipping re-filling exec array"
+			return 0
+		fi
 		# expand string-level escape sequences
 		de_expand_str "$value"
 		# Split Exec and save as string delimited by unit separator
@@ -719,26 +725,36 @@ parse_entry_key() {
 		fi
 		;;
 	"Name[${LCODE}]")
-		debug "captured '$key' '$value'"
-		if [ "$in_action" != "true" ]; then
+		case "${in_main}_${in_action}" in
+		true_false)
+			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_LNAME=$EXPANDED_STR
-		else
+			;;
+		false_true)
+			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_LNAME_ACTION=$EXPANDED_STR
-		fi
+			;;
+		*) debug "discarded '$key' '$value'" ;;
+		esac
 		;;
 	Name)
-		debug "captured '$key' '$value'"
-		if [ "$in_action" != "true" ]; then
+		case "${in_main}_${in_action}" in
+		true_false)
+			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_NAME=$EXPANDED_STR
-		else
+			;;
+		false_true)
+			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_NAME_ACTION=$EXPANDED_STR
-		fi
+			;;
+		*) debug "discarded '$key' '$value'" ;;
+		esac
 		;;
-	"Comment[${LCODE}]")
+	"GenericName[${LCODE}]")
 		case "$in_action" in
 		true)
 			error "${ENTRY_ID}: Encountered '$key' key inside action!"
@@ -749,7 +765,7 @@ parse_entry_key() {
 		de_expand_str "$value"
 		ENTRY_LCOMMENT=$EXPANDED_STR
 		;;
-	Comment)
+	GenericName)
 		case "$in_action" in
 		true)
 			error "${ENTRY_ID}: Encountered '$key' key inside action!"
@@ -761,13 +777,13 @@ parse_entry_key() {
 		ENTRY_COMMENT=$EXPANDED_STR
 		;;
 	Icon)
-		debug "captured '$key' '$value'"
-		if [ "$in_action" != "true" ]; then
-			# shellcheck disable=SC2034
-			ENTRY_ICON_MAIN=$value
+		if [ "$in_main" = "true" ] || [ "$in_action" = "true" ]; then
+			debug "captured '$key' '$value'"
+			de_expand_str "$value"
+			ENTRY_ICON=$EXPANDED_STR
+		else
+			debug "discarded '$key' '$value'"
 		fi
-		de_expand_str "$value"
-		ENTRY_ICON=$EXPANDED_STR
 		;;
 	Path)
 		debug "captured '$key' '$value'"
@@ -811,8 +827,10 @@ read_entry_path() {
 	entry_action="${2-}"
 	read_exec=false
 	action_listed=false
+	in_main=false
 	in_action=false
 	action_exec=false
+	break_on_next_section=false
 	# shellcheck disable=SC2016
 	debug "reading desktop entry '$entry_path'${entry_action:+ action '$entry_action'}"
 	# Let `read` trim leading/trailing whitespace from the line
@@ -820,7 +838,14 @@ read_entry_path() {
 		case $line in
 		# `There should be nothing preceding [the Desktop Entry group] in the desktop entry file but [comments]`
 		# if entry_action is not requested, allow reading Exec right away from the main group
-		'[Desktop Entry]'*) [ -z "$entry_action" ] && [ -z "$EXEC_RSEP_USEP" ] && read_exec=true ;;
+		'[Desktop Entry]'*)
+			debug "entered section: $line"
+			in_main=true
+			if [ -z "$entry_action" ]; then
+				read_exec=true
+				break_on_next_section=true
+			fi
+			;;
 		# A `Key=Value` pair
 		[a-zA-Z0-9-]*=*)
 			# Split
@@ -833,13 +858,16 @@ read_entry_path() {
 				$value
 			EOL
 			# Parse key, or abort
-			parse_entry_key "$key" "$value" "$entry_action" "$read_exec" "$in_action" || return 1
+			parse_entry_key "$key" "$value" "$entry_action" "$read_exec" "$in_main" "$in_action" || return 1
 			;;
 		# found requested action, allow reading Exec
 		"[Desktop Action ${entry_action}]"*)
+			debug "entered section: $line"
+			in_main=false
+			break_on_next_section=true
 			case "$action_listed" in
 			true)
-				[ -z "$EXEC_RSEP_USEP" ] && read_exec=true
+				read_exec=true
 				in_action=true
 				;;
 			*)
@@ -849,7 +877,13 @@ read_entry_path() {
 			esac
 			;;
 		# Start of the next group header, stop if already read exec
-		'['*) [ "$read_exec" = "true" ] && break ;;
+		'['*)
+			debug "entered section: $line"
+			[ "$break_on_next_section" = "true" ] && break
+			in_main=false
+			in_action=false
+			read_exec=false
+			;;
 		esac
 		# By default empty lines and comments get ignored
 	done < "$entry_path"
@@ -1582,9 +1616,10 @@ elif [ "$#" -eq "0" ] && [ "$TERMINAL" = "true" ]; then
 		# cmd after newline, fill exec array right away
 		EXEC_RSEP_USEP=${path_and_cmd#*"$N"}
 		# shellcheck disable=SC2086
-		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated EXEC_RSEP_USEP with:${N}" "$(
+debug "initial args:${N}$(printf 'D:     >%s<\n' "$@")"
+		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated EXEC_RSEP_USEP with:${N}$(
 			IFS=$USEP
-			printf '  > %s\n' $EXEC_RSEP_USEP
+			printf 'D:  > %s\n' $EXEC_RSEP_USEP
 		)"
 	else
 		# issue a warning
