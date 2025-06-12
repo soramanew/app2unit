@@ -31,15 +31,6 @@ giving additional ~0.03s.
 
 See `--help` for more info.
 
-## Fuzzel integration
-
-Can be integrated into [Fuzzel](https://codeberg.org/dnkl/fuzzel/) launcher via
-its launch prefix feature: `--launch-prefix='app2unit --fuzzel-compat --'`.
-app2unit will use command line provided by Fuzzel as is, but currently it will
-have to re-find and re-parse desktop entry to extract metadata since Fuzzel [can
-only tell it Desktop Entry ID and nothing
-more](https://codeberg.org/dnkl/fuzzel/issues/292).
-
 ## UWSM integration
 
 Transparently, via having environment variables in your sessions:
@@ -51,6 +42,28 @@ To use UWSM's custom slices:
 To change default unit type:
 
     APP2UNIT_TYPE=service
+
+## Fuzzel integration
+
+Can be integrated into [Fuzzel](https://codeberg.org/dnkl/fuzzel/) launcher via
+its launch prefix feature: `--launch-prefix='app2unit --fuzzel-compat --'`.
+app2unit will use command line provided by Fuzzel as is, but currently it will
+have to re-find and re-parse desktop entry to extract metadata since Fuzzel [can
+only tell it Desktop Entry ID and nothing
+more](https://codeberg.org/dnkl/fuzzel/issues/292).
+
+## Terminal support
+
+`app2unit -T` or `app2unit-term` (without command) can be used to open default
+terminal as a unit, with unit metadata filled from its desktop entry.
+
+Proper metadata support requires scripting options in `xdg-terminal-exec`
+available since version 0.13.0.
+
+When terminal is requested explicitly (with `-T` argument or `*-term` executable
+link), any unknown option starting with `-` after `-T` and before `--` or a
+command are passed to `xdg-terminal-exec` to be handled according to the
+Default Terminal Spec proposal.
 
 ## Opener mode
 
