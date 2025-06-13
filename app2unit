@@ -205,7 +205,14 @@ check_bool() {
 
 # Utility function to print debug messages to stderr (or not)
 if check_bool "${DEBUG-0}"; then
-	debug() { printf 'D: %s\n' "$@" >&2; }
+	debug() {
+		# print each arg at new line, prefix each printed line with 'D: '
+		while IFS='' read -r debug_line; do
+			printf 'D: %s\n' "$debug_line"
+		done <<- EOF >&2
+			$(printf '%s\n' "$@")
+		EOF
+	}
 else
 	debug() { :; }
 fi
@@ -495,10 +502,7 @@ de_tokenize_exec() {
 		;;
 	esac
 	# shellcheck disable=SC2086
-	debug "tokenizer ended:${N}$(
-		IFS=$USEP
-		printf 'D:     >%s<\n' $EXEC_USEP
-	)"
+	debug "tokenizer ended:" "$(IFS=$USEP; printf '  >%s<\n' $EXEC_USEP)"
 }
 
 de_inject_fields() {
@@ -1128,7 +1132,7 @@ systemd_run() {
 		;;
 	esac
 
-	debug "systemd run${N}$(printf 'D:     >%s<\n' systemd-run "$@")"
+	debug "systemd run" "$(printf '  >%s<\n' systemd-run "$@")"
 
 	# print args in test mode
 	case "$TEST_MODE" in
@@ -1238,7 +1242,7 @@ check_terminal_handler() {
 
 ########################
 
-debug "initial args:${N}$(printf 'D:     >%s<\n' "$@")"
+debug "initial args:"  "$(printf '  >%s<\n' "$@")"
 
 EXEC_NAME=''
 EXEC_PATH=''
@@ -1616,11 +1620,8 @@ elif [ "$#" -eq "0" ] && [ "$TERMINAL" = "true" ]; then
 		# cmd after newline, fill exec array right away
 		EXEC_RSEP_USEP=${path_and_cmd#*"$N"}
 		# shellcheck disable=SC2086
-debug "initial args:${N}$(printf 'D:     >%s<\n' "$@")"
-		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated EXEC_RSEP_USEP with:${N}$(
-			IFS=$USEP
-			printf 'D:  > %s\n' $EXEC_RSEP_USEP
-		)"
+		debug "initial args:" "$(printf '  >%s<\n' "$@")"
+		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated EXEC_RSEP_USEP with:" "$(IFS=$USEP; printf '  > %s\n' $EXEC_RSEP_USEP)"
 	else
 		# issue a warning
 		{
@@ -1698,7 +1699,7 @@ if [ -n "$ENTRY_ID" ]; then
 				IFS=$OIFS
 				;;
 			esac
-			debug "iteration${N}$(printf 'D:     >%s<\n' "$@")"
+			debug "entry iteration" "$(printf '  >%s<\n' "$@")"
 			if [ "$first" = "false" ]; then
 				randomize_unit_id
 			fi
@@ -1723,7 +1724,7 @@ if [ -n "$ENTRY_ID" ]; then
 			IFS=$OIFS
 			;;
 		esac
-		debug "single${N}$(printf 'D:     >%s<\n' "$@")"
+		debug "entry single" "$(printf '  >%s<\n' "$@")"
 		systemd_run "$@"
 		;;
 	esac
@@ -1740,6 +1741,6 @@ else
 		IFS=$OIFS
 		;;
 	esac
-	debug "cmd${N}$(printf 'D:     >%s<\n' "$@")"
+	debug "command" "$(printf '  >%s<\n' "$@")"
 	systemd_run "$@"
 fi
