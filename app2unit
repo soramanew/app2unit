@@ -502,7 +502,10 @@ de_tokenize_exec() {
 		;;
 	esac
 	# shellcheck disable=SC2086
-	debug "tokenizer ended:" "$(IFS=$USEP; printf '  >%s<\n' $EXEC_USEP)"
+	debug "tokenizer ended:" "$(
+		IFS=$USEP
+		printf '  >%s<\n' $EXEC_USEP
+	)"
 }
 
 de_inject_fields() {
@@ -631,14 +634,26 @@ parse_entry_key() {
 	in_main=$5
 	in_action=$6
 
-	case $key in
-	Actions)
-		case "$in_action" in
-		true)
-			error "${ENTRY_ID}: Encountered '$key' key inside action!"
+	case "${in_action};${key}" in
+	'false;'* | 'true;Name' | 'true;Name['*']' | 'true;Exec' | 'true;Icon') true ;;
+	*)
+		error "${ENTRY_ID}: Encountered '$key' key inside action!"
+		return 1
+		;;
+	esac
+
+	case "$key" in
+	Type)
+		debug "captured '$key' '$value'"
+		case "$value" in
+		Application | Link) ENTRY_TYPE=$value ;;
+		*)
+			error "${ENTRY_ID}: Unsupported type '$value'!"
 			return 1
 			;;
 		esac
+		;;
+	Actions)
 		# `It is not valid to have an action group for an action identifier not mentioned in the Actions key.
 		# Such an action group must be ignored by implementors.`
 		# ignore if no action requested
@@ -657,12 +672,6 @@ parse_entry_key() {
 		return 1
 		;;
 	TryExec)
-		case "$in_action" in
-		true)
-			error "${ENTRY_ID}: Encountered '$key' key inside action!"
-			return 1
-			;;
-		esac
 		debug "checking TryExec executable '$value'"
 		de_expand_str "$value"
 		value=$EXPANDED_STR
@@ -672,12 +681,6 @@ parse_entry_key() {
 		fi
 		;;
 	Hidden)
-		case "$in_action" in
-		true)
-			error "${ENTRY_ID}: Encountered '$key' key inside action!"
-			return 1
-			;;
-		esac
 		debug "checking boolean Hidden '$value'"
 		case "$value" in
 		true)
@@ -728,6 +731,11 @@ parse_entry_key() {
 			return 1
 		fi
 		;;
+	URL)
+		debug "captured '$key' '$value'"
+		de_expand_str "$value"
+		ENTRY_URL=$EXPANDED_STR
+		;;
 	"Name[${LCODE}]")
 		case "${in_main}_${in_action}" in
 		true_false)
@@ -759,23 +767,11 @@ parse_entry_key() {
 		esac
 		;;
 	"GenericName[${LCODE}]")
-		case "$in_action" in
-		true)
-			error "${ENTRY_ID}: Encountered '$key' key inside action!"
-			return 1
-			;;
-		esac
 		debug "captured '$key' '$value'"
 		de_expand_str "$value"
 		ENTRY_LCOMMENT=$EXPANDED_STR
 		;;
 	GenericName)
-		case "$in_action" in
-		true)
-			error "${ENTRY_ID}: Encountered '$key' key inside action!"
-			return 1
-			;;
-		esac
 		debug "captured '$key' '$value'"
 		de_expand_str "$value"
 		ENTRY_COMMENT=$EXPANDED_STR
@@ -891,6 +887,7 @@ read_entry_path() {
 		esac
 		# By default empty lines and comments get ignored
 	done < "$entry_path"
+
 	# check for required things for action
 	if [ -n "$entry_action" ]; then
 		case "$action_listed" in
@@ -905,6 +902,19 @@ read_entry_path() {
 			return 1
 		fi
 	fi
+
+	# check for required things for types
+	case "${ENTRY_TYPE};;${EXEC_RSEP_USEP};;${ENTRY_URL}" in
+	'Application;;'?*';;' | 'Link;;;;'?*) true ;;
+	';;'*)
+		error "${ENTRY_ID}: type not specified!"
+		return 1
+		;;
+	*)
+		error "${ENTRY_ID}: type and keys mismatch: '$ENTRY_TYPE', Exec is$([ -z "${EXEC_RSEP_USEP}" ] && echo ' not') set, URL is$([ -z "${ENTRY_URL}" ] && echo ' not') set"
+		return 1
+		;;
+	esac
 }
 
 random_string() {
@@ -1240,15 +1250,66 @@ check_terminal_handler() {
 	fi
 }
 
+get_mime() {
+	# prints mime type of file or url
+	mime=
+	case "$1" in
+	[a-zA-Z]*:*)
+		IFS=':' read -r scheme _rest <<- EOF
+			$1
+		EOF
+		debug "potential scheme '$scheme'"
+		case "$scheme" in
+		*[!a-zA-Z0-9+.-]*)
+			debug "not a valid scheme '$scheme', assuming file"
+			mime=$(xdg-mime query filetype "$1")
+			;;
+		*) mime=x-scheme-handler/$scheme ;;
+		esac
+		;;
+	*) mime=$(xdg-mime query filetype "$1") ;;
+	esac
+
+	case "$mime" in
+	'' | 'x-scheme-handler/')
+		error "Could not query mime type for '$1'"
+		return 1
+		;;
+	*)
+		debug "got mime '$mime' for '$1'"
+		echo "$mime"
+		return 0
+		;;
+	esac
+}
+
+get_assoc() {
+	# prints file association for mime type
+	assoc=$(xdg-mime query default "$1")
+	case "$assoc" in
+	?*.desktop)
+		debug "got association '$assoc' for mime '$1'"
+		echo "$assoc"
+		return 0
+		;;
+	*)
+		error "Could not query association for mime '$1'"
+		return 1
+		;;
+	esac
+}
+
 ########################
 
-debug "initial args:"  "$(printf '  >%s<\n' "$@")"
+debug "initial args:" "$(printf '  >%s<\n' "$@")"
 
 EXEC_NAME=''
 EXEC_PATH=''
 EXEC_RSEP_USEP=''
 ENTRY_PATH=''
 ENTRY_ID=''
+ENTRY_TYPE=''
+ENTRY_URL=''
 ENTRY_COMMENT=''
 ENTRY_NAME=''
 ENTRY_ICON=''
@@ -1552,32 +1613,8 @@ if [ "$OPENER_MODE" = "true" ]; then
 	MAIN_ARG=
 	# determine if file or URL, get associations for MAIN_ARG
 	for arg in "$@"; do
-		case "$arg" in
-		[a-zA-Z]*:*)
-			IFS=':' read -r scheme _rest <<- EOF
-				$arg
-			EOF
-			debug "potential scheme '$scheme'"
-			case "$scheme" in
-			*[!a-zA-Z0-9+.-]*)
-				debug "not a valid scheme '$scheme', assuming file"
-				mime=$(xdg-mime query filetype "$arg")
-				;;
-			*) mime=x-scheme-handler/$scheme ;;
-			esac
-			;;
-		*) mime=$(xdg-mime query filetype "$arg") ;;
-		esac
-		if [ -z "$mime" ]; then
-			error "Could not query mime type for '$arg'"
-			exit 1
-		fi
-		debug "got mime '$mime'"
-		assoc=$(xdg-mime query default "$mime")
-		if [ -z "$assoc" ]; then
-			error "Could not query association for for mime '$mime'"
-			exit 1
-		fi
+		mime=$(get_mime "$arg")
+		assoc=$(get_assoc "$mime")
 		if [ -z "$MAIN_ARG" ]; then
 			debug "setting MAIN_ARG from association for '$arg': '$assoc'"
 			MAIN_ARG=$assoc
@@ -1621,7 +1658,11 @@ elif [ "$#" -eq "0" ] && [ "$TERMINAL" = "true" ]; then
 		EXEC_RSEP_USEP=${path_and_cmd#*"$N"}
 		# shellcheck disable=SC2086
 		debug "initial args:" "$(printf '  >%s<\n' "$@")"
-		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated EXEC_RSEP_USEP with:" "$(IFS=$USEP; printf '  > %s\n' $EXEC_RSEP_USEP)"
+		# shellcheck disable=SC2086
+		debug "replaced MAIN_ARG with '$MAIN_ARG'" "populated EXEC_RSEP_USEP with:" "$(
+			IFS=$USEP
+			printf '  > %s\n' $EXEC_RSEP_USEP
+		)"
 	else
 		# issue a warning
 		{
@@ -1664,14 +1705,29 @@ elif [ -n "$ENTRY_ID" ]; then
 	ENTRY_PATH=$(find_entry "$ENTRY_ID")
 fi
 
+# read and parse entry, fill ENTRY_* vars and EXEC_RSEP_USEP
 if [ -n "$ENTRY_PATH" ]; then
 	read_entry_path "$ENTRY_PATH" "$ENTRY_ACTION"
+fi
+
+# handle Link type URL
+if [ -n "$ENTRY_URL" ]; then
+	debug "re-parsing for Link entry URL: $ENTRY_URL"
+	mime=$(get_mime "$ENTRY_URL")
+	assoc=$(get_assoc "$mime")
+	# replace initial vars and arg
+	ENTRY_ID=$assoc
+	set -- "$ENTRY_URL"
+	ENTRY_URL=
+	# re-parse new entry
+	ENTRY_PATH=$(find_entry "$ENTRY_ID")
+	read_entry_path "$ENTRY_PATH"
 fi
 
 # generate Unit ID as UNIT_ID
 gen_unit_id
 
-# compose arguments
+# compose and execute arguments
 if [ -n "$ENTRY_ID" ]; then
 
 	# do not bother with fields in fuzzel compat, since there are no open args
