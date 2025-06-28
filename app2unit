@@ -20,64 +20,48 @@ shcat() {
 }
 
 usage() {
-	case "$SELF_NAME" in
-	*-open)
-		shcat <<- EOF
-			Usage:
-			  $SELF_NAME \\
-			    [-h | --help]
-			    [-s a|b|s|custom.slice] \\
-			    [-t scope|service] \\
-			    [-a app_name | -u unit_id] \\
-			    [-d description] \\
-			    [-S out|err|both] \\
-			    [-c] \\
-			    [-T] \\
-			    [--test]
-			    [--] \\
-			    [file/URL ...]
-		EOF
-		;;
-	*-term)
-		shcat <<- EOF
-			Usage:
-			  $SELF_NAME \\
-			    [-h | --help]
-			    [-s a|b|s|custom.slice] \\
-			    [-t scope|service] \\
-			    [-a app_name | -u unit_id] \\
-			    [-d description] \\
-			    [-S out|err|both] \\
-			    [-c] \\
-			    [-O | --open ] \\
-			    [--fuzzel-compat] \\
-			    [--test]
-			    [--] \\
-			    [entry-id.desktop | entry-id.desktop:action-id | command] \\
-			    [args ...]
-		EOF
-		;;
-	*)
-		shcat <<- EOF
-			Usage:
-			  $SELF_NAME \\
-			    [-h | --help]
-			    [-s a|b|s|custom.slice] \\
-			    [-t scope|service] \\
-			    [-a app_name | -u unit_id] \\
-			    [-d description] \\
-			    [-S out|err|both] \\
-			    [-c] \\
-			    [-T] \\
-			    [-O | --open ] \\
-			    [--fuzzel-compat] \\
-			    [--test]
-			    [--] \\
-			    {entry-id.desktop | entry-id.desktop:action-id | command} \\
-			    [args ...]
-		EOF
-		;;
-	esac
+	shcat <<- EOF
+		Usage:
+		  $SELF_NAME \\
+		    [-h | --help]
+		    [-s a|b|s|custom.slice] \\$(
+			case "$SELF_NAME" in
+			*-scope | *-service) true ;;
+			*)
+				printf '\n'
+				# shellcheck disable=SC1003
+				printf '    %s\n' '[-t scope|service] \'
+				;;
+			esac
+		)
+		    [-a app_name | -u unit_id] \\
+		    [-d description] \\
+		    [-S out|err|both] \\
+		    [-c] \\
+		    [-T] \\$(
+			case "$SELF_NAME" in
+			*-open | *-open-scope | *-open-service) true ;;
+			*)
+				printf '\n'
+				# shellcheck disable=SC1003
+				printf '    %s\n' '[-O | --open ] \'
+				;;
+			esac
+		)
+		    [--fuzzel-compat] \\
+		    [--test] \\
+		    [--] $(
+			case "$SELF_NAME" in
+			*-open | *-open-scope | *-open-service) printf '%s\n' '{file|URL ...}' ;;
+			*-term | *-terminal | *-term-scope | *-terminal-scope | *-term-service | *-terminal-service)
+				printf '%s\n' '[entry-id.desktop | entry-id.desktop:action-id | command] [args ...]'
+				;;
+			*)
+				printf '%s\n' '{entry-id.desktop | entry-id.desktop:action-id | command} [args ...]'
+				;;
+			esac
+		)
+	EOF
 }
 
 help() {
@@ -100,7 +84,8 @@ help() {
 		    the format above.
 
 		  -t scope|service
-		    Type of unit to launch. Can be preselected via APP2UNIT_TYPE env var.
+		    Type of unit to launch. Can be preselected via APP2UNIT_TYPE env var and
+		    if \$0 ends with '*-scope' or '*-service'.
 
 		  -a app_name
 		    Override substring of Unit ID representing application name.
@@ -118,13 +103,15 @@ help() {
 
 	EOF
 	case "$SELF_NAME" in
-	*-term) true ;;
+	*-term | *-terminal | *-term-scope | *-terminal-scope | *-term-service | *-terminal-service) true ;;
 	*)
 		shcat <<- EOF
-			  -T (also selected by default if \$0 ends with '-term')
+			  -T
 			    Force launch in terminal (${TERMINAL_HANDLER} is used). Any unknown option
 			    starting with '-' after this will be passed to ${TERMINAL_HANDLER}.
 			    Command may be omitted to just launch default terminal.
+			    This mode can also be selected if \$0 ends with '-term' or '-terminal',
+			    also optionally followed by '-scope' or '-service' unit type suffixes.
 
 		EOF
 		;;
@@ -139,7 +126,7 @@ help() {
 
 	EOF
 	case "$SELF_NAME" in
-	*-open) true ;;
+	*-open | *-open-scope | *-open-service) true ;;
 	*)
 		shcat <<- EOF
 			  -O | --open (also selected by default if \$0 ends with '-open')
@@ -152,6 +139,7 @@ help() {
 			      fuzzel --launch-prefix='app2unit --fuzzel-compat --'
 			    Will need updates after this is solved:
 			      https://codeberg.org/dnkl/fuzzel/issues/292
+
 		EOF
 		;;
 	esac
@@ -163,15 +151,30 @@ help() {
 		  --
 		    Disambiguate command from options
 
-		Command:
-
-		  Use Desktop Entry ID, optionally suffixed with Action ID:
-		    entry-id.desktop
-		    entry-id.desktop:action-id
-		  Arguments should be supproted by Desktop Entry.
-
-		  Or use a custom command, arguments will be passed as is.
 	EOF
+
+	case "$SELF_NAME" in
+	*-open | *-open-scope | *-open-service)
+		shcat <<- EOF
+			File(s)|URL(s):
+
+			  Objects to query xdg-mime for associations and open. The only
+			  restriction is: all given objects should have the same association.
+		EOF
+		;;
+	*)
+		shcat <<- EOF
+			Desktop Entry or Command:
+
+			  Use Desktop Entry ID, optionally suffixed with Action ID:
+			    entry-id.desktop
+			    entry-id.desktop:action-id
+			  Arguments should be supproted by Desktop Entry.
+
+			  Or use a custom command, arguments will be passed as is.
+		EOF
+		;;
+	esac
 }
 
 error() {
@@ -1387,10 +1390,20 @@ OPENER_MODE=false
 
 capture_terminal_args=false
 case "$SELF_NAME" in
-*-open) OPENER_MODE=true ;;
-*-term)
+*-open | *-open-scope | *-open-service)
+	OPENER_MODE=true
+	case "$SELF_NAME" in
+	*-scope) UNIT_TYPE=scope ;;
+	*-service) UNIT_TYPE=service ;;
+	esac
+	;;
+*-term | *-terminal | *-term-scope | *-terminal-scope | *-term-service | *-terminal-service)
 	TERMINAL=true
 	capture_terminal_args=true
+	case "$SELF_NAME" in
+	*-scope) UNIT_TYPE=scope ;;
+	*-service) UNIT_TYPE=service ;;
+	esac
 	;;
 esac
 
