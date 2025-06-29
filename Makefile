@@ -25,12 +25,12 @@ install-man: app2unit.1
 .PHONY: install-bin
 install-bin:
 	install -Dpm755 app2unit -t $(bindir)
-	ln -s app2unit $(bindir)/app2unit-open
-	ln -s app2unit $(bindir)/app2unit-open-scope
-	ln -s app2unit $(bindir)/app2unit-open-service
-	ln -s app2unit $(bindir)/app2unit-term
-	ln -s app2unit $(bindir)/app2unit-term-scope
-	ln -s app2unit $(bindir)/app2unit-term-service
+	ln -sfT app2unit $(bindir)/app2unit-open
+	ln -sfT app2unit $(bindir)/app2unit-open-scope
+	ln -sfT app2unit $(bindir)/app2unit-open-service
+	ln -sfT app2unit $(bindir)/app2unit-term
+	ln -sfT app2unit $(bindir)/app2unit-term-scope
+	ln -sfT app2unit $(bindir)/app2unit-term-service
 
 .PHONY: install
 install: install-bin install-man
