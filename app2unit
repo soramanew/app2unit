@@ -34,10 +34,10 @@ usage() {
 				;;
 			esac
 		)
-		    [-a app_name | -u unit_id] \\
+		    [{-a app_name | -u unit_id}] \\
 		    [-d description] \\
-		    [-S out|err|both] \\
-		    [-c] \\
+		    [-S {out|err|both}] \\
+		    [{-c|-C}] \\
 		    [-T] \\$(
 			case "$SELF_NAME" in
 			*-open | *-open-scope | *-open-service) true ;;
@@ -85,11 +85,11 @@ help() {
 
 		  -t scope|service
 		    Type of unit to launch. Can be preselected via APP2UNIT_TYPE env var and
-		    if \$0 ends with '*-scope' or '*-service'.
+		    if \$0 ends with '-scope' or '-service'.
 
 		  -a app_name
 		    Override substring of Unit ID representing application name.
-		    Defaults to Entry ID without extension or executable name.
+		    Defaults to Entry ID without extension, or executable name.
 
 		  -u unit_id
 		    Override the whole Unit ID. Must match type. Defaults to recommended
@@ -98,8 +98,8 @@ help() {
 		      app-\${desktop}-\${app_name}-\${random}.scope
 
 		  -d description
-		    Set/override unit description. Defaults is take from Entry's "Name=" and
-		    "GenericName=" keys.
+		    Set/override unit description. By default description is generated from
+		    Entry's "Name=" and "GenericName=" keys.
 
 	EOF
 	case "$SELF_NAME" in
@@ -117,12 +117,16 @@ help() {
 		;;
 	esac
 	shcat <<- EOF
-		  -S {out,err,both}
+		  -S out|err|both
 		    Silence stdout stderr or both.
 
 		  -c
 		    Do not add graphical-session.target dependency and ordering.
 		    Also can be preset with APP2UNIT_PART_OF_GST=false.
+
+		  -C
+		    Add graphical-session.target dependency and ordering.
+		    Also can be preset with APP2UNIT_PART_OF_GST=true.
 
 	EOF
 	case "$SELF_NAME" in
@@ -131,14 +135,14 @@ help() {
 		shcat <<- EOF
 			  -O | --open (also selected by default if \$0 ends with '-open')
 			    Opener mode: argument(s) are treated as file(s) or URL(s) to open.
-			    Desktop entry for them is found via xdg-mime. Only single association
+			    Desktop Entry for them is found via xdg-mime. Only single association
 			    is supported.
+			    This mode can also be selected if \$0 ends with '-open', also optionally
+			    followed by '-scope' or '-service' unit type suffixes.
 
 			  --fuzzel-compat
 			    For using in fuzzel like this:
 			      fuzzel --launch-prefix='app2unit --fuzzel-compat --'
-			    Will need updates after this is solved:
-			      https://codeberg.org/dnkl/fuzzel/issues/292
 
 		EOF
 		;;
@@ -149,7 +153,7 @@ help() {
 		    Do not run anything, print command.
 
 		  --
-		    Disambiguate command from options
+		    Disambiguate command from options.
 
 	EOF
 
@@ -1448,6 +1452,7 @@ for arg in "$@"; do
 	esac
 done
 
+part_of_gst_set=false
 # parse args
 TERMINAL_ARGS_USEP=
 while [ "$#" -gt "0" ]; do
@@ -1540,8 +1545,27 @@ while [ "$#" -gt "0" ]; do
 		shift 2
 		;;
 	-c)
+		case "$part_of_gst_set" in
+		true)
+			error "-c conflicts with -C" "$(usage)"
+			exit 1
+			;;
+		esac
 		debug "arg '$1'"
 		PART_OF_GST=false
+		part_of_gst_set=true
+		shift
+		;;
+	-C)
+		case "$part_of_gst_set" in
+		true)
+			error "-C conflicts with -c" "$(usage)"
+			exit 1
+			;;
+		esac
+		debug "arg '$1'"
+		PART_OF_GST=true
+		part_of_gst_set=true
 		shift
 		;;
 	-S)
