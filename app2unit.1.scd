@@ -23,11 +23,22 @@ _entry-id.desktop_:_action-id_ | _command_] [_args_ ...]
 # DESCRIPTION
 
 *app2unit* launches applications by their Desktop Entry IDs, or arbitrary
-command lines. With *-O* option it can open files or URLs in associated
-applications. With *-T* argument it can force running application in a terminal,
-or just open a default terminal (utilizing *xdg-terminal-exec*).
+command lines. Applications are launched as systemd user units.
 
-Applications are launched as systemd user units.
+With *-O* option it can open files or URLs in associated applications.
+
+With *-T* option it can force running application in a terminal, or just open
+default terminal (utilizing *xdg-terminal-exec*).
+
+Symlinks with specially suffixed names can be used to pre-select some modes and
+unit types with single command:
+
+- *app2unit-open*
+- *app2unit-open-scope*
+- *app2unit-open-service*
+- *app2unit-term*
+- *app2unit-term-scope*
+- *app2unit-term-service*
 
 # OPTIONS
 
