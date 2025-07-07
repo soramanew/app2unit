@@ -78,7 +78,7 @@ replacement for `xdg-open`.
 
 ### Opening default file manager
 
-Assuming it is an association for `inode/directory`^
+Assuming it is an association for `inode/directory`:
 
 ```
 app2unit-open .
@@ -96,4 +96,4 @@ Links are available to pre-select some launching modes via a sinlge command:
 * `app2unit-term-service`
 
 This may come handy for situations where other apps can only operate a command
-without arguments. I.e. selecting a terminal command in PcmanFM.
+without arguments. I.e. selecting a terminal command in PCmanFM.
