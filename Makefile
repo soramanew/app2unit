@@ -1,3 +1,4 @@
+DESTDIR ?=
 SHELL = /bin/sh
 prefix ?= /usr/local
 exec_prefix ?= $(prefix)
@@ -20,29 +21,29 @@ clean:
 
 .PHONY: install-man
 install-man: app2unit.1
-	install -Dpm644 app2unit.1.gz -t $(man1dir)
+	install -Dpm644 app2unit.1.gz -t $(DESTDIR)$(man1dir)
 
 .PHONY: install-bin
 install-bin:
-	install -Dpm755 app2unit -t $(bindir)
-	ln -sfT app2unit $(bindir)/app2unit-open
-	ln -sfT app2unit $(bindir)/app2unit-open-scope
-	ln -sfT app2unit $(bindir)/app2unit-open-service
-	ln -sfT app2unit $(bindir)/app2unit-term
-	ln -sfT app2unit $(bindir)/app2unit-term-scope
-	ln -sfT app2unit $(bindir)/app2unit-term-service
+	install -Dpm755 app2unit -t $(DESTDIR)$(bindir)
+	ln -sfT app2unit $(DESTDIR)$(bindir)/app2unit-open
+	ln -sfT app2unit $(DESTDIR)$(bindir)/app2unit-open-scope
+	ln -sfT app2unit $(DESTDIR)$(bindir)/app2unit-open-service
+	ln -sfT app2unit $(DESTDIR)$(bindir)/app2unit-term
+	ln -sfT app2unit $(DESTDIR)$(bindir)/app2unit-term-scope
+	ln -sfT app2unit $(DESTDIR)$(bindir)/app2unit-term-service
 
 .PHONY: install
 install: install-bin install-man
 
 .PHONY: uninstall
 uninstall:
-	rm -f $(bindir)/app2unit
-	rm -f $(bindir)/app2unit-open
-	rm -f $(bindir)/app2unit-open-scope
-	rm -f $(bindir)/app2unit-open-service
-	rm -f $(bindir)/app2unit-term
-	rm -f $(bindir)/app2unit-term-scope
-	rm -f $(bindir)/app2unit-term-service
+	rm -f $(DESTDIR)$(bindir)/app2unit
+	rm -f $(DESTDIR)$(bindir)/app2unit-open
+	rm -f $(DESTDIR)$(bindir)/app2unit-open-scope
+	rm -f $(DESTDIR)$(bindir)/app2unit-open-service
+	rm -f $(DESTDIR)$(bindir)/app2unit-term
+	rm -f $(DESTDIR)$(bindir)/app2unit-term-scope
+	rm -f $(DESTDIR)$(bindir)/app2unit-term-service
 
-	rm -f $(man1dir)/app2unit.1.gz
+	rm -f $(DESTDIR)$(man1dir)/app2unit.1.gz
