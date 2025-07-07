@@ -1008,9 +1008,9 @@ gen_unit_id() {
 		elif [ -z "$UNIT_APP_SUBSTRING" ]; then
 			UNIT_APP_SUBSTRING=${EXEC_NAME}
 		fi
-		if [ -n "${XDG_SESSION_DESKTOP}" ]; then
+		if [ -n "${XDG_SESSION_DESKTOP:-}" ]; then
 			UNIT_DESKTOP_SUBSTRING=${XDG_SESSION_DESKTOP}
-		elif [ -n "$XDG_CURRENT_DESKTOP" ]; then
+		elif [ -n "${XDG_CURRENT_DESKTOP:-}" ]; then
 			UNIT_DESKTOP_SUBSTRING=${XDG_CURRENT_DESKTOP%%:*}
 		else
 			UNIT_DESKTOP_SUBSTRING=NoDesktop
@@ -1031,10 +1031,10 @@ gen_unit_id() {
 		RANDOM_STRING=$(random_string)
 		case "$UNIT_TYPE" in
 		service)
-			UNIT_ID="app-${XDG_SESSION_DESKTOP}-${UNIT_APP_SUBSTRING}@${RANDOM_STRING}.service"
+			UNIT_ID="app-${UNIT_DESKTOP_SUBSTRING}-${UNIT_APP_SUBSTRING}@${RANDOM_STRING}.service"
 			;;
 		scope)
-			UNIT_ID="app-${XDG_SESSION_DESKTOP}-${UNIT_APP_SUBSTRING}-${RANDOM_STRING}.scope"
+			UNIT_ID="app-${UNIT_DESKTOP_SUBSTRING}-${UNIT_APP_SUBSTRING}-${RANDOM_STRING}.scope"
 			;;
 		*)
 			error "Unsupported unit type '$UNIT_TYPE'!"
