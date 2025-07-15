@@ -4,7 +4,7 @@
   makeWrapper,
   scdoc,
 }:
-stdenvNoCC.mkDerivation (final: {
+stdenvNoCC.mkDerivation {
   pname = "app2unit";
   version = "${rev}";
   src = ./.;
@@ -13,4 +13,4 @@ stdenvNoCC.mkDerivation (final: {
   buildInputs = [scdoc];
 
   installPhase = "install -Dm755 app2unit $out/bin/app2unit";
-})
+}
