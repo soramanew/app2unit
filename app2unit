@@ -679,6 +679,10 @@ parse_entry_key() {
 		return 1
 		;;
 	TryExec)
+		if [ -z "$value" ]; then
+			debug "ignored empty '$key'"
+			return 0
+		fi
 		debug "checking TryExec executable '$value'"
 		de_expand_str "$value"
 		value=$EXPANDED_STR
@@ -744,13 +748,14 @@ parse_entry_key() {
 		ENTRY_URL=$EXPANDED_STR
 		;;
 	"Name[${LCODE}]")
-		case "${in_main}_${in_action}" in
-		true_false)
+		case "${in_main}_${in_action}_${value}" in
+		true_false_ | false_true_) debug "discarded empty '$key'" ;;
+		true_false_*)
 			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_LNAME=$EXPANDED_STR
 			;;
-		false_true)
+		false_true_*)
 			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_LNAME_ACTION=$EXPANDED_STR
@@ -759,13 +764,14 @@ parse_entry_key() {
 		esac
 		;;
 	Name)
-		case "${in_main}_${in_action}" in
-		true_false)
+		case "${in_main}_${in_action}_${value}" in
+		true_false_ | false_true_) debug "discarded empty '$key'" ;;
+		true_false_*)
 			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_NAME=$EXPANDED_STR
 			;;
-		false_true)
+		false_true_*)
 			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_NAME_ACTION=$EXPANDED_STR
@@ -784,7 +790,7 @@ parse_entry_key() {
 		ENTRY_COMMENT=$EXPANDED_STR
 		;;
 	Icon)
-		if [ "$in_main" = "true" ] || [ "$in_action" = "true" ]; then
+		if [ -n "$value" ] && { [ "$in_main" = "true" ] || [ "$in_action" = "true" ]; }; then
 			debug "captured '$key' '$value'"
 			de_expand_str "$value"
 			ENTRY_ICON=$EXPANDED_STR
@@ -793,6 +799,10 @@ parse_entry_key() {
 		fi
 		;;
 	Path)
+		if [ -z "$value" ]; then
+			debug "ignored empty '$key'"
+			return 0
+		fi
 		debug "captured '$key' '$value'"
 		de_expand_str "$value"
 		ENTRY_WORKDIR=$EXPANDED_STR
@@ -904,7 +914,7 @@ read_entry_path() {
 			return 1
 			;;
 		esac
-		if [ "$action_exec" != "true" ] || [ -z "${ENTRY_LNAME_ACTION:-$ENTRY_NAME_ACTION}" ]; then
+		if [ "$action_exec" != "true" ] || [ -z "${ENTRY_LNAME_ACTION:-${ENTRY_NAME_ACTION:-}}" ]; then
 			error "${ENTRY_ID}: Action '$entry_action' is incomplete"
 			return 1
 		fi
